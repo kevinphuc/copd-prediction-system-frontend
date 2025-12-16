@@ -1,5 +1,10 @@
-import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
-import { API_BASE_URL } from '@/shared/constants/api.constants';
+import axios, {
+  AxiosError,
+  AxiosInstance,
+  InternalAxiosRequestConfig,
+} from "axios";
+import { API_BASE_URL } from "@/shared/constants/api.constants";
+import { LocalStorageService } from "../storage/local-storage.service";
 
 class ApiClient {
   private client: AxiosInstance;
@@ -8,7 +13,7 @@ class ApiClient {
     this.client = axios.create({
       baseURL: API_BASE_URL,
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
     });
 
@@ -19,13 +24,30 @@ class ApiClient {
     // Request interceptor
     this.client.interceptors.request.use(
       (config: InternalAxiosRequestConfig) => {
-        const token = this.getToken();
-        if (token && config.headers) {
-          config.headers.Authorization = `Bearer ${token}`;
+        const { accessToken, isExpired } = LocalStorageService.getAuthTokens();
+
+        // Check if token is expired before making request
+        if (accessToken && isExpired) {
+          console.warn("⚠️ Token expired, clearing auth");
+          LocalStorageService.clearAuthTokens();
+
+          // Redirect to login if not already there
+          if (
+            typeof window !== "undefined" &&
+            !window.location.pathname.includes("/login")
+          ) {
+            window.location.href = "/login";
+          }
+
+          return Promise.reject(new Error("Token expired"));
+        }
+
+        if (accessToken && config.headers) {
+          config.headers.Authorization = `Bearer ${accessToken}`;
         }
         return config;
       },
-      (error) => Promise.reject(error)
+      (error) => Promise.reject(error),
     );
 
     // Response interceptor
@@ -33,30 +55,21 @@ class ApiClient {
       (response) => response,
       (error: AxiosError) => {
         if (error.response?.status === 401) {
-          this.clearToken();
-          if (typeof window !== 'undefined') {
-            window.location.href = '/login';
+          console.error("❌ 401 Unauthorized - clearing tokens");
+          LocalStorageService.clearAuthTokens();
+
+          if (typeof window !== "undefined") {
+            window.location.href = "/login";
           }
         }
         return Promise.reject(error);
-      }
+      },
     );
   }
 
-  private getToken(): string | null {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('access_token');
-  }
-
-  private clearToken(): void {
-    if (typeof window === 'undefined') return;
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user_id');
-  }
-
   public setToken(token: string): void {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem('access_token', token);
+    // Token is already set via LocalStorageService.setAuthTokens
+    console.log("✅ Token set in API client");
   }
 
   public get instance(): AxiosInstance {
